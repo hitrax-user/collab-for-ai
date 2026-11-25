@@ -1,0 +1,6 @@
+# Скрипты выполняются в WSL — им нужны LF даже после git clone на Windows
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary

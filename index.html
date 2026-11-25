@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#F3F0E8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D0E10" media="(prefers-color-scheme: dark)">
+<title>Colab LLM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Onest:wght@400;500;600;700&family=Unbounded:wght@600&display=swap">
+<style>
+  /* «Приборная панель»: графит и один сигнальный янтарь. Янтарь — то, что ждёт человека; зелёный — готово. */
+  :root {
+    --bg: #F3F0E8; --panel: #FBFAF6; --field: #FFFFFF; --line: #DDD7CB; --line-2: #C6BEAE;
+    --text: #1B1A17; --muted: #6B665C;
+    --accent: #F2A516; --on-accent: #1B1300; --accent-fg: #9A5B00; --accent-soft: rgba(242, 165, 22, .16);
+    --ok: #1E7F45; --bad: #C0392B; --warn: #9A5B00;
+    --sans: "Onest", system-ui, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    --display: "Unbounded", "Onest", sans-serif;
+    --r: 12px;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D0E10; --panel: #15171A; --field: #1C1F23; --line: #2A2E34; --line-2: #3B4048;
+      --text: #ECE8E1; --muted: #9A968E;
+      --accent: #FFB020; --on-accent: #1A1200; --accent-fg: #FFBE45; --accent-soft: rgba(255, 176, 32, .13);
+      --ok: #5BD48A; --bad: #FF7466; --warn: #FFBE45;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }  /* иначе display у классов перебивает атрибут hidden */
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased;
+         touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  body::before { /* лёгкое зерно, как у матовой панели */
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 100; opacity: .05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  code, .mono { font-family: var(--mono); font-size: .9em; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .app { display: grid; grid-template-columns: 430px minmax(0, 1fr); gap: 20px; height: 100%; padding: 20px; }
+  @media (max-width: 960px) { .app { grid-template-columns: 1fr; height: auto; } .chat { min-height: 85vh; } }
+
+  /* ---------- левая колонка ---------- */
+  .rail { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; min-height: 0; padding: 2px 4px 8px 2px; scrollbar-width: thin; }
+  .brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 2px 2px 4px; }
+  .brand h1 { font: 600 19px/1 var(--display); letter-spacing: -.01em; margin: 0; }
+  .brand h1 span { color: var(--accent-fg); }
+  .brand small { font: 500 11px var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+  .tag { font: 500 11px/1 var(--mono); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; }
+  .banner { background: var(--bad); color: #fff; padding: 10px 14px; border-radius: 10px; font-size: 14px; }
+  .banner code { background: rgba(255, 255, 255, .18); padding: 1px 5px; border-radius: 4px; }
+
+  /* аккаунты — сразу видны, выбор одним кликом */
+  .accs { display: grid; gap: 6px; margin-top: 10px; }
+  .acct { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 9px 12px;
+          border: 1px solid var(--line); border-radius: 10px; background: var(--field); cursor: pointer;
+          transition: border-color .15s, background-color .15s; }
+  .acct input { position: absolute; opacity: 0; pointer-events: none; }
+  .acct:hover { border-color: var(--line-2); }
+  .acct:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .acct:has(input:focus-visible) { outline: 2px solid var(--accent-fg); outline-offset: 2px; }
+  .acct:has(input:disabled) { cursor: not-allowed; }
+  .acct:has(input:disabled:not(:checked)) { opacity: .5; }
+  .acct .who { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+  .acct b { font-weight: 600; }
+  .acct small { font: 12px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .add { width: 100%; margin-top: 6px; border-style: dashed; color: var(--muted); }
+  .add:hover:not(:disabled) { color: var(--text); }
+  .add-box { margin-top: 10px; padding: 12px; border: 1px dashed var(--line-2); border-radius: 10px; }
+  .add-box .hint:first-child { margin-top: 0; }
+  .add-box .endpoint { margin-top: 8px; }
+  #add-link { flex: 1; text-decoration: none; }
+  #add-code { font-family: var(--mono); font-size: 13px; }
+  .linkbtn { background: none; border: 0; padding: 0; margin-top: 10px; color: var(--muted); font-size: 13px; cursor: pointer; text-decoration: underline; }
+  .linkbtn:hover { color: var(--text); }
+  .led { width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--line-2); background: transparent; flex: none; }
+  .acct:has(input:checked) .led { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  /* шаги на «шине»: текущий горит янтарём, пройденные — зелёным */
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; position: relative; }
+  .steps::before { content: ""; position: absolute; left: 14px; top: 18px; bottom: 18px; width: 2px; background: var(--line); border-radius: 2px; }
+  .step { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; position: relative;
+          animation: rise .45s cubic-bezier(.2, .7, .2, 1) both; }
+  .step:nth-child(2) { animation-delay: .06s; } .step:nth-child(3) { animation-delay: .12s; } .step:nth-child(4) { animation-delay: .18s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  .node { width: 30px; height: 30px; margin-top: 14px; border-radius: 8px; display: grid; place-items: center; position: relative;
+          font: 600 13px var(--mono); color: var(--muted); background: var(--bg); border: 1px solid var(--line-2);
+          transition: background-color .2s, border-color .2s, color .2s; }
+  .step.done .node { background: var(--ok); border-color: var(--ok); color: var(--bg); }
+  .step.current .node { border-color: var(--accent); color: var(--accent-fg); background: var(--panel); box-shadow: 0 0 0 4px var(--accent-soft); }
+  .step.current .node::after { content: ""; position: absolute; inset: -5px; border-radius: 11px; border: 1px solid var(--accent); animation: ping 2s ease-out infinite; }
+  @keyframes ping { from { opacity: .7; transform: scale(1); } to { opacity: 0; transform: scale(1.35); } }
+  .step.current .card { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .step h2 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 12px;
+             font: 600 16px/1.3 var(--sans); text-wrap: balance; }
+
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; text-wrap: pretty; }
+  .msg-warn { color: var(--warn); font-size: 13px; margin: 8px 0 0; }
+  .msg-bad { color: var(--bad); font-size: 13px; margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  label.lbl { display: block; font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .status { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line-2); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 70%, transparent); }
+  .dot.warn { background: var(--accent); } .dot.bad { background: var(--bad); }
+  .dot.pulse { animation: blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
+
+  /* ---------- элементы управления ---------- */
+  button, select, input, textarea { font: inherit; color: inherit; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 16px;
+         border-radius: 10px; border: 1px solid var(--line-2); background: var(--field); cursor: pointer; font-weight: 500;
+         transition: background-color .15s, border-color .15s, color .15s, transform .1s; }
+  .btn:hover:not(:disabled) { border-color: var(--accent); }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, var(--text)); }
+  .btn.wide { width: 100%; }
+  .btn:disabled { cursor: not-allowed; opacity: .55; }
+  .btn.primary:disabled { opacity: 1; background: var(--field); border-color: var(--line); color: var(--muted); font-weight: 500; }
+  .btn.icon { width: 40px; padding: 0; }
+  :focus-visible { outline: 2px solid var(--accent-fg); outline-offset: 2px; }
+  .i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  a { color: var(--accent-fg); }
+  a.ext { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; text-decoration: none; }
+  a.ext:hover { text-decoration: underline; }
+
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; min-height: 40px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--field); color: var(--text); transition: border-color .15s;
+  }
+  input:hover, select:hover, textarea:hover { border-color: var(--line-2); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  select { cursor: pointer; }
+  #link { font-family: var(--mono); font-size: 13px; }
+
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label { text-align: center; padding: 7px 6px; border-radius: 7px; cursor: pointer; font: 500 12px var(--mono); color: var(--muted);
+               transition: background-color .15s, color .15s; }
+  .seg label:hover { color: var(--text); }
+  .seg input:checked + label { background: var(--text); color: var(--bg); }
+  .seg input:focus-visible + label { outline: 2px solid var(--accent-fg); outline-offset: 1px; }
+
+  .repo { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+  .variants { margin-top: 10px; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 10px; background: var(--field); }
+  .variants label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px;
+                    cursor: pointer; border-bottom: 1px solid var(--line); font-size: 13px; transition: background-color .15s; }
+  .variants label:last-child { border-bottom: 0; }
+  .variants label:hover { background: var(--bg); }
+  .variants label:has(input:checked) { background: var(--accent-soft); }
+  .variants input { accent-color: var(--accent); }
+  .variants .vn { font-family: var(--mono); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .fit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--muted); font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { border: 1px solid var(--line); background: var(--field); border-radius: 8px; padding: 5px 10px; font: 12px var(--mono); cursor: pointer;
+          font-variant-numeric: tabular-nums; transition: border-color .15s; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip:hover { border-color: var(--accent); }
+  .chip b { color: var(--ok); font-weight: 600; }
+  progress { width: 100%; height: 6px; margin-top: 12px; accent-color: var(--accent); }
+  #job-text { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .endpoint { display: flex; gap: 8px; }
+  .endpoint input { font-family: var(--mono); font-size: 13px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 12px; }
+  details summary:hover { color: var(--text); }
+  details ol { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  details li + li { margin-top: 4px; }
+
+  /* ---------- чат ---------- */
+  .chat { display: flex; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; }
+  .chat-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .chat-head .title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+  .chat-head .model { font: 500 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-head .model.off { color: var(--muted); font-weight: 400; }
+  .settings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 14px; padding: 4px 16px 16px; border-bottom: 1px solid var(--line); background: var(--bg); }
+  .settings .full { grid-column: 1 / -1; }
+  .settings input[type=number] { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .settings .check { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; margin-top: 12px; }
+  .settings .check input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .keep { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: 14px; cursor: pointer; }
+  .keep input { accent-color: var(--accent); width: 16px; height: 16px; margin: 2px 0 0; flex: none; }
+  .keep small { display: block; margin-top: 2px; }
+  /* нагрузка VM: одна строка — одна величина со своей шкалой, без общих осей */
+  .load { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .load .tag { display: flex; justify-content: space-between; }
+  .meter { margin-top: 12px; }
+  .meter > div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+  .meter b { font-weight: 500; font-size: 13px; }
+  .meter .val { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .meter svg { width: 100%; height: 36px; display: block; overflow: visible; cursor: crosshair; touch-action: none;
+               background: linear-gradient(var(--line), var(--line)) bottom / 100% 1px no-repeat; }
+  .meter .area { fill: color-mix(in srgb, var(--text) 9%, transparent); }
+  .meter .line { fill: none; stroke: var(--text); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .meter .hair { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  @media (max-width: 1250px) { .settings { grid-template-columns: 1fr 1fr; } }
+  .log { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 22px 20px; display: flex; flex-direction: column; gap: 18px; }
+  .empty { margin: auto; color: var(--muted); text-align: center; max-width: 360px; text-wrap: balance; }
+  .empty::before { content: ""; display: block; width: 44px; height: 44px; margin: 0 auto 14px; border-radius: 12px;
+                   border: 1px dashed var(--line-2); background: radial-gradient(circle, var(--accent) 0 3px, transparent 4px); }
+  .m { max-width: min(860px, 92%); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+  .m.user { align-self: flex-end; background: var(--field); border: 1px solid var(--line); border-radius: 14px 14px 4px 14px; padding: 9px 14px; }
+  .m.assistant { align-self: flex-start; padding-left: 14px; border-left: 2px solid var(--accent); }
+  .m .think { color: var(--muted); font: 12.5px/1.6 var(--mono); border-left: 1px dashed var(--line-2); padding-left: 10px; margin-bottom: 10px; }
+  .m .meta { color: var(--muted); font: 11.5px var(--mono); margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .m .meta.cut { color: var(--warn); }
+  .m.pending .body::after { content: "▍"; color: var(--accent-fg); animation: blink 1s infinite; }
+  .composer { display: flex; gap: 10px; align-items: flex-end; padding: 14px 16px; border-top: 1px solid var(--line); }
+  .composer textarea { resize: none; max-height: 180px; line-height: 1.5; }
+
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 50; max-width: min(560px, 92vw);
+           background: var(--panel); border: 1px solid var(--bad); border-left-width: 4px; border-radius: 10px; padding: 10px 14px;
+           box-shadow: 0 10px 30px rgba(0, 0, 0, .25); font-size: 14px; white-space: pre-wrap; animation: rise .2s ease-out; }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail" aria-label="Управление">
+    <header class="brand">
+      <h1 translate="no">Colab<span>/</span>LLM</h1>
+      <small>T4 · 15 ГБ</small>
+    </header>
+    <div id="offline" class="banner" role="alert" hidden>Сервер не отвечает: запусти <code>./menu</code> в WSL</div>
+    <div id="stale" class="banner" role="alert" hidden>Код сервера обновился, а работает старый: новые кнопки не сработают. Перезапусти — Ctrl-C в окне <code>./menu</code> и выбери аккаунт снова</div>
+
+    <section class="card" aria-labelledby="acc-h">
+      <div id="acc-h" class="tag">Аккаунт Colab</div>
+      <div id="accs" class="accs" role="radiogroup" aria-labelledby="acc-h"></div>
+      <p id="acc-hint" class="hint" hidden></p>
+      <button id="add-btn" class="btn add" type="button">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Добавить аккаунт</span>
+      </button>
+      <div id="add-box" class="add-box" hidden>
+        <p class="hint">1. Открой ссылку и войди в нужный Google-аккаунт. Подставился не тот — скопируй ссылку в окно инкогнито.</p>
+        <div class="endpoint">
+          <a id="add-link" class="btn primary" target="_blank" rel="noopener">Войти в Google
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
+          <button id="add-copy" class="btn icon" type="button" aria-label="Копировать ссылку"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        </div>
+        <label class="lbl" for="add-code">2. Код со страницы Google</label>
+        <div class="endpoint">
+          <input id="add-code" name="auth-code" type="text" autocomplete="off" spellcheck="false" placeholder="Вставь код сюда" translate="no">
+          <button id="add-ok" class="btn" type="button">Добавить</button>
+        </div>
+        <button id="add-cancel" class="linkbtn" type="button">Отмена</button>
+      </div>
+      <p id="add-err" class="msg-bad" role="alert" hidden></p>
+    </section>
+
+    <ol class="steps">
+      <li class="step" id="s1">
+        <span class="node" aria-hidden="true">1</span>
+        <section class="card" aria-labelledby="h1">
+          <h2 id="h1">VM с T4 <a id="colab-link" class="ext" target="_blank" rel="noopener" hidden>Colab
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="width:14px;height:14px"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a></h2>
+          <div class="status" aria-live="polite"><span id="vm-dot" class="dot"></span><span id="vm-text" class="num">…</span></div>
+          <p id="vm-sub" class="hint num" hidden></p>
+          <p id="vm-msg" class="msg-warn" hidden></p>
+          <div class="row" style="margin-top:14px">
+            <button id="vm-btn" class="btn primary" type="button">
+              <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.77.04"/></svg><span>Включить T4</span>
+            </button>
+          </div>
+          <label class="keep"><input id="keep" type="checkbox">
+            <span>Держать VM<small class="hint">Не гасить за простоем. Если Colab закроет VM, включить снова и загрузить ту же модель</small></span></label>
+          <div id="load" class="load" hidden>
+            <div class="tag"><span>Нагрузка</span><span>10 мин</span></div>
+            <div id="meters"></div>
+          </div>
+        </section>
+      </li>
+
+      <li class="step" id="s2">
+        <span class="node" aria-hidden="true">2</span>
+        <section class="card" aria-labelledby="h2">
+          <h2 id="h2">Модель</h2>
+          <div class="seg" role="radiogroup" aria-label="Движок">
+            <input type="radio" name="engine" id="e-llama" value="llama" checked><label for="e-llama" translate="no">llama.cpp · GGUF</label>
+            <input type="radio" name="engine" id="e-exl3" value="exl3"><label for="e-exl3" translate="no">ExLlamaV3 · EXL3</label>
+          </div>
+          <label class="lbl" for="link">Ссылка на Hugging Face или автор/модель</label>
+          <input id="link" name="hf-model" type="text" placeholder="unsloth/Qwen3-8B-GGUF…" autocomplete="off" spellcheck="false" translate="no">
+          <div id="downloaded" hidden><p class="hint">Уже скачаны на VM — нажми, чтобы выбрать:</p><div id="chips" class="chips" translate="no"></div></div>
+          <p id="look-status" class="hint" aria-live="polite" hidden></p>
+          <div id="found" hidden>
+            <p class="hint" style="margin-top:12px">Репозиторий: <a id="repo-link" class="repo" target="_blank" rel="noopener" translate="no"></a></p>
+            <p id="look-note" class="msg-warn" hidden></p>
+            <div id="alt-box" hidden>
+              <label class="lbl" for="alt">Другой репозиторий</label>
+              <select id="alt" name="alt-repo" translate="no"></select>
+            </div>
+            <div id="variants" class="variants" role="radiogroup" aria-label="Вариант" translate="no"></div>
+          </div>
+        </section>
+      </li>
+
+      <li class="step" id="s3">
+        <span class="node" aria-hidden="true">3</span>
+        <section class="card" aria-labelledby="h3">
+          <h2 id="h3">Загрузка</h2>
+          <button id="load-btn" class="btn primary wide" type="button" disabled>
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg><span translate="no">Загрузить</span>
+          </button>
+          <p id="load-hint" class="hint num"></p>
+          <p id="load-warn" class="msg-warn" hidden>Часть слоёв на CPU — скорость упадёт в разы; возьми квант поменьше</p>
+          <div id="job" aria-live="polite" hidden>
+            <progress id="job-bar" max="1"></progress>
+            <p id="job-text" class="hint"></p>
+          </div>
+          <p id="job-error" class="msg-bad" hidden></p>
+        </section>
+      </li>
+
+      <li class="step" id="s4">
+        <span class="node" aria-hidden="true">4</span>
+        <section class="card" aria-labelledby="h4">
+          <h2 id="h4">Open WebUI</h2>
+          <label class="lbl" for="api" style="margin-top:0">Адрес API · модель <code>colab</code></label>
+          <div class="endpoint">
+            <input id="api" name="api-url" type="text" readonly translate="no">
+            <button id="copy" class="btn icon" type="button" aria-label="Копировать адрес">
+              <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+          <details>
+            <summary>Как подключить (один раз)</summary>
+            <ol>
+              <li>Open WebUI → Admin → Settings → Connections → OpenAI API → «+».</li>
+              <li>URL — адрес выше, ключ — любой, например <code>colab</code>.</li>
+              <li>Admin → Settings → Interface → Task Model: выбери другую модель или выключи заголовки, теги и подсказки — иначе каждая фоновая задача ждёт очередь к Colab.</li>
+            </ol>
+          </details>
+        </section>
+      </li>
+    </ol>
+  </aside>
+
+  <main class="chat card" aria-label="Чат">
+    <div class="chat-head">
+      <div class="title"><span id="chat-dot" class="dot"></span><span id="chat-model" class="model off" translate="no">модель не загружена</span></div>
+      <button id="new-chat" class="btn" type="button">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Новый чат
+      </button>
+      <button id="set-btn" class="btn icon" type="button" aria-label="Настройки" aria-expanded="false" aria-controls="settings">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+      </button>
+    </div>
+    <div id="settings" class="settings" hidden>
+      <div class="full"><label class="lbl" for="o-system">Системный промпт</label><textarea id="o-system" name="system" rows="2"></textarea></div>
+      <div><label class="lbl" for="o-temperature" translate="no">temperature</label><input id="o-temperature" name="temperature" type="number" inputmode="decimal" min="0" max="2" step="0.05"></div>
+      <div><label class="lbl" for="o-top_p" translate="no">top_p</label><input id="o-top_p" name="top_p" type="number" inputmode="decimal" min="0" max="1" step="0.01"></div>
+      <div><label class="lbl" for="o-top_k" translate="no">top_k</label><input id="o-top_k" name="top_k" type="number" inputmode="numeric" min="0" max="200" step="1"></div>
+      <div><label class="lbl" for="o-max_tokens" translate="no">max_tokens</label><input id="o-max_tokens" name="max_tokens" type="number" inputmode="numeric" min="64" max="131072" step="64" placeholder="весь контекст"></div>
+      <label class="check full"><input id="o-think" name="think" type="checkbox"> Думать — показывать рассуждения модели</label>
+    </div>
+    <div id="log" class="log" aria-live="polite"></div>
+    <div class="composer">
+      <textarea id="msg" name="message" aria-label="Сообщение" rows="1" autocomplete="off" placeholder="Сообщение… Enter — отправить, Shift+Enter — новая строка" disabled></textarea>
+      <button id="send" class="btn primary icon" type="button" aria-label="Отправить" disabled>
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7M12 19V5"/></svg>
+      </button>
+    </div>
+  </main>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const store = {
+  get: (k, d) => { try { return JSON.parse(localStorage.getItem("colab." + k)) ?? d; } catch { return d; } },
+  set: (k, v) => localStorage.setItem("colab." + k, JSON.stringify(v)),
+};
+const nf = new Intl.NumberFormat("ru-RU", {minimumFractionDigits: 1, maximumFractionDigits: 1});
+const gb = n => nf.format(n / 1e9) + " ГБ";
+const FIT = {fast: ["ok", "T4 потянет"], slow: ["warn", "очень медленно, часть на CPU"], no: ["bad", "не влезет"]};
+const DEFAULTS = {system: "", temperature: 0.7, top_p: 0.95, top_k: 40, max_tokens: null, think: false};  // max_tokens null — весь остаток контекста
+const CUT = {length: "обрезано: кончился лимит max_tokens — подними его в ⚙", context: "обрезано: кончился контекст модели — начни новый чат"};
+
+let st = null;         // последнее состояние сервера
+let pick = null;       // выбранный вариант: {engine, repo, variant, size, mark}
+let found = null;      // ответ /api/lookup
+let switching = null;  // аккаунт, на который переключаемся, пока сервер не подтвердил
+let lookSeq = 0;
+let sending = false;
+let chat = store.get("chat", []);
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+let toastTimer = null;
+function toast(text) {
+  const t = $("#toast");
+  t.textContent = text; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 7000);
+}
+const engine = () => document.querySelector("input[name=engine]:checked").value;
+const setEngine = e => { $("#e-" + e).checked = true; store.set("engine", e); };
+
+// ---------- состояние сервера ----------
+async function poll() {
+  try { st = await api("/api/state"); $("#offline").hidden = true; $("#stale").hidden = !st.stale; render(); }
+  catch { $("#offline").hidden = false; }
+  setTimeout(poll, 1500);
+}
+
+function render() {
+  renderAccounts();
+  renderAdd();
+
+  // шаг 1: VM
+  const mins = s => Math.max(0, Math.round(s / 60));
+  const vm = {
+    off: ["", "VM выключена"], checking: ["warn pulse", "Проверяю VM…"], starting: ["warn pulse", "Включаю T4…"],
+    on: ["ok", `T4 работает · ${mins(st.now - st.vm_since)} мин`], stopping: ["warn pulse", "Гашу VM…"], lost: ["bad", "VM больше нет"],
+  }[st.vm];
+  $("#vm-dot").className = "dot " + (st.reviving ? "warn pulse" : vm[0]);
+  $("#vm-text").textContent = vm[1] + (st.reviving ? " · включу снова" : "");
+  $("#vm-sub").hidden = st.vm !== "on";
+  $("#vm-sub").textContent = st.job?.active ? "Идёт загрузка модели" : st.busy ? "Модель отвечает"
+    : st.keep ? "За простоем не погаснет: стоит «Держать VM»" : `Погаснет сама через ${mins(st.idle_left)} мин без запросов`;
+  $("#keep").checked = st.keep;
+  $("#vm-msg").hidden = !st.vm_msg;
+  $("#vm-msg").textContent = st.vm_msg;
+  $("#vm-msg").className = st.vm === "lost" ? "msg-bad" : "msg-warn";
+  const vmBtn = $("#vm-btn"), on = st.vm === "on";
+  vmBtn.disabled = !["off", "lost", "on"].includes(st.vm) || (on && st.job?.active);
+  vmBtn.className = "btn " + (on ? "" : "primary");
+  vmBtn.querySelector("span").textContent = on ? "Погасить VM" : ["off", "lost"].includes(st.vm) ? "Включить T4" : "Подожди…";
+  $("#colab-link").hidden = !st.colab_url;
+  if (st.colab_url) $("#colab-link").href = st.colab_url;
+  renderLoad();
+
+  // шаг 2: скачанные на VM
+  $("#downloaded").hidden = !st.models.length;
+  const chips = $("#chips"), key = JSON.stringify(st.models) + JSON.stringify(st.running);
+  if (chips.dataset.key !== key) {
+    chips.dataset.key = key;
+    chips.innerHTML = "";
+    for (const m of st.models) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip"; b.title = m.repo;
+      const run = st.running && st.running.repo === m.repo && st.running.variant === m.variant;
+      b.textContent = `${m.name} · ${gb(m.size)}`;
+      if (run) { const s = document.createElement("b"); s.textContent = " · запущена"; b.append(s); }
+      b.onclick = () => { $("#link").value = m.engine === "llama" ? `https://huggingface.co/${m.repo}/blob/main/${m.variant}` : `https://huggingface.co/${m.repo}/tree/${m.variant}`; setEngine(m.engine); lookup(); };
+      chips.append(b);
+    }
+  }
+
+  // шаг 3: загрузка
+  const job = st.job, active = !!job?.active;
+  const btn = $("#load-btn"), isRunning = pick && st.running && st.running.repo === pick.repo && st.running.variant === pick.variant;
+  btn.disabled = !on || !pick || active || isRunning || pick.mark === "no";
+  btn.querySelector("span").textContent = pick ? `Загрузить ${pick.name}` : "Загрузить";
+  const vram = st.running?.vram == null ? "?" : nf.format(st.running.vram);
+  const fresh = job && !active && !job.error && job.secs !== null;
+  // раскладка слоёв — только когда часть модели не влезла: на CPU генерация медленнее в разы
+  const ctx = st.running?.ctx, [gpu, all] = st.running?.layers || [0, 0], spill = isRunning && !active && gpu < all;
+  const loaded = `видеопамять ${vram} ГБ${ctx ? `, контекст ${ctx.toLocaleString("ru")} токенов` : ""}${spill ? `, на GPU ${gpu} из ${all} слоёв` : ""} — пиши в чат`;
+  $("#load-hint").textContent = !on ? "Сначала включи VM (шаг 1)" : !pick ? "Выбери модель (шаг 2)" : active ? "" :
+    isRunning ? (fresh ? `Готово за ${job.secs} с, ${loaded}` : `Уже запущена, ${loaded}`) :
+    pick.mark === "no" ? "Этот вариант не влезет в T4 — выбери поменьше" : st.running ? `Сейчас запущена ${st.running.name} — она выгрузится` : "";
+  $("#load-hint").className = (pick?.mark === "no" && on && !active && !isRunning ? "msg-warn" : "hint") + " num";
+  $("#load-warn").hidden = !(on && spill);
+  $("#job").hidden = !active;
+  if (active) {
+    const bar = $("#job-bar"), dl = job.stage === "Скачиваю" && job.total;
+    if (dl) { bar.max = job.total; bar.value = Math.min(job.done, job.total); } else bar.removeAttribute("value");
+    const t = Math.max(0, Math.round(st.now - (job.since ?? st.now)));
+    $("#job-text").textContent = `${job.name}: ${job.stage}` + (dl ? ` ${gb(job.done)} из ${gb(job.total)}` : "…") + ` · ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+  }
+  $("#job-error").hidden = !(job && !active && job.error);
+  $("#job-error").textContent = job?.error ? `Не загрузилась: ${job.error}` : "";
+
+  // шина шагов: пройденные — зелёные, первый непройденный — текущий
+  const done = [on, !!pick, !!st.running, false];
+  const cur = done.indexOf(false);
+  ["#s1", "#s2", "#s3", "#s4"].forEach((s, i) => {
+    $(s).classList.toggle("done", done[i]);
+    $(s).classList.toggle("current", i === cur && i < 3);
+  });
+
+  // шаг 4 и чат
+  $("#api").value = st.api;
+  $("#chat-model").textContent = st.running ? `${st.running.name} · ${st.running.engine === "llama" ? "llama.cpp" : "ExLlamaV3"}` : "модель не загружена";
+  $("#chat-model").classList.toggle("off", !st.running);
+  $("#chat-dot").className = "dot " + (active ? "warn pulse" : st.running ? (st.busy || sending ? "ok pulse" : "ok") : "");
+  const canChat = !!st.running && !active && !sending;
+  $("#msg").disabled = !st.running || active;
+  $("#send").disabled = !canChat;
+  $("#msg").placeholder = !st.running ? "Сначала загрузи модель (шаг 3)" : active ? "Идёт загрузка модели…" : "Сообщение… Enter — отправить, Shift+Enter — новая строка";
+  if (!chat.length) drawChat();
+}
+
+// ---------- аккаунт ----------
+function renderAccounts() {
+  const box = $("#accs"), key = JSON.stringify(st.accounts);
+  if (box.dataset.key !== key) {  // перестраиваем только когда список изменился, а не на каждом опросе
+    box.dataset.key = key;
+    box.innerHTML = "";
+    for (const a of st.accounts) {
+      const label = document.createElement("label");
+      label.className = "acct";
+      const input = Object.assign(document.createElement("input"), {type: "radio", name: "acc", value: a.name});
+      input.onchange = () => chooseAccount(a.name);
+      const who = document.createElement("span");
+      who.className = "who";
+      who.append(Object.assign(document.createElement("b"), {textContent: a.name, translate: false}));
+      if (a.email) who.append(Object.assign(document.createElement("small"), {textContent: a.email, translate: false}));
+      label.append(input, Object.assign(document.createElement("span"), {className: "led"}), who);
+      box.append(label);
+    }
+  }
+  if (switching && st.acc === switching) switching = null;
+  const lock = ["starting", "stopping"].includes(st.vm) || !!st.job?.active || st.busy || !!switching;
+  for (const input of box.querySelectorAll("input")) {
+    input.checked = input.value === (switching ?? st.acc);
+    input.disabled = lock;
+  }
+  const hint = $("#acc-hint");
+  hint.textContent = switching ? `Переключаюсь на ${switching}…` : st.job?.active ? "Сменить аккаунт можно после загрузки модели"
+    : st.busy ? "Сменить аккаунт можно, когда модель доответит" : lock ? "Сменить аккаунт можно, когда VM включится или погаснет"
+    : st.vm === "on" && st.accounts.length > 1 ? "Другой аккаунт — VM этого погаснет" : "";
+  hint.hidden = !hint.textContent;
+}
+
+async function chooseAccount(name) {
+  if (name === st.acc) return;
+  if (st.vm === "on" && !confirm(`Погасить VM аккаунта ${st.acc} и перейти на ${name}?\nМодель и скачанные файлы пропадут.`)) { renderAccounts(); return; }
+  switching = name;
+  renderAccounts();
+  try { await api("/api/account", {name}); }
+  catch (err) { switching = null; toast(err.message); }
+  if (st) render();
+}
+
+// ---------- новый аккаунт: ссылка Google → код со страницы Google ----------
+let addBusy = false;
+function renderAdd() {
+  const url = st.adding;
+  $("#add-btn").hidden = !!st.adding;
+  $("#add-btn").disabled = addBusy;
+  $("#add-btn").querySelector("span").textContent = addBusy && !st.adding ? "Готовлю вход…" : "Добавить аккаунт";
+  $("#add-box").hidden = !st.adding;
+  if (url && $("#add-link").href !== url) $("#add-link").href = url;
+  $("#add-ok").disabled = addBusy;
+  $("#add-ok").textContent = addBusy && st.adding ? "Проверяю…" : "Добавить";
+}
+function addError(text) { $("#add-err").textContent = text; $("#add-err").hidden = !text; }
+
+$("#add-btn").onclick = async () => {
+  addBusy = true; addError(""); renderAdd();
+  try { st.adding = (await api("/api/account/add", {})).url; } catch (err) { addError(err.message); }
+  addBusy = false; renderAdd();
+  if (st.adding) $("#add-link").focus();
+};
+async function addCode() {
+  const code = $("#add-code").value.trim();
+  if (!code || addBusy) return;
+  addBusy = true; renderAdd();
+  try {
+    const {name} = await api("/api/account/code", {code});
+    const auto = ["off", "lost"].includes(st.vm) && !st.job?.active && !st.busy;
+    if (auto) switching = name;
+    toast(`Добавлен ${name}` + (auto ? " — переключаюсь на него" : ". Переключись на него в списке"));
+  } catch (err) { addError(err.message); }
+  $("#add-code").value = "";
+  st.adding = null; addBusy = false; render();
+}
+$("#add-ok").onclick = addCode;
+$("#add-code").onkeydown = e => { if (e.key === "Enter") addCode(); };
+$("#add-code").onpaste = () => setTimeout(addCode, 0);
+$("#add-copy").onclick = () => navigator.clipboard.writeText(st.adding).then(() => toast("Ссылка скопирована"), () => toast(st.adding));
+$("#add-cancel").onclick = async () => {
+  await api("/api/account/cancel", {}).catch(() => {});
+  st.adding = null; addError(""); renderAdd();
+};
+
+// ---------- нагрузка VM ----------
+// точка: [время VM, CPU %, RAM ГБ, GPU %, видеопамять ГБ]; у каждой величины своя шкала от нуля до предела
+const nf0 = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 0});
+const METERS = [
+  {i: 1, name: "CPU", max: () => 100, fmt: v => `${nf0.format(v)} %`},
+  {i: 2, name: "RAM", max: s => s.ram_total, fmt: (v, s) => `${nf.format(v)} из ${nf.format(s.ram_total)} ГБ`},
+  {i: 3, name: "GPU", max: () => 100, fmt: v => `${nf0.format(v)} %`, gpu: true},
+  {i: 4, name: "Видеопамять", max: s => s.vram_total, fmt: (v, s) => `${nf.format(v)} из ${nf.format(s.vram_total)} ГБ`, gpu: true},
+];
+const W = 300, H = 36;
+const hover = {};  // строка → время точки под курсором; опрос раз в 1,5 с не сбивает подсказку
+
+function renderLoad() {
+  const s = st.stats, box = $("#meters");
+  $("#load").hidden = !(st.vm === "on" && s?.points?.length);
+  if ($("#load").hidden) return;
+  const pts = s.points, end = pts.at(-1)[0], span = (s.every || 2) * 300;
+  const x = t => W - (end - t) / span * W;
+  for (const m of METERS) {
+    let row = box.querySelector(`[data-i="${m.i}"]`);
+    const off = m.gpu && !s.vram_total;
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "meter"; row.dataset.i = m.i;
+      row.innerHTML = `<div><b>${m.name}</b><span class="val num"></span></div>
+        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${m.name} за 10 минут">
+          <path class="area"/><path class="line"/><line class="hair" y1="0" y2="${H}" visibility="hidden"/></svg>`;
+      const svg = row.querySelector("svg");
+      svg.onpointermove = e => {
+        const r = svg.getBoundingClientRect(), t = end0() - (1 - (e.clientX - r.left) / r.width) * span0();
+        hover[m.i] = t; renderLoad();
+      };
+      svg.onpointerleave = () => { delete hover[m.i]; renderLoad(); };
+      box.append(row);
+    }
+    row.hidden = off;
+    if (off) continue;
+    const max = m.max(s) || 1, y = v => H - Math.min(v, max) / max * (H - 2);
+    const seen = pts.filter(p => p[m.i] != null);
+    const line = seen.map((p, k) => `${k ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[m.i]).toFixed(1)}`).join("");
+    row.querySelector(".line").setAttribute("d", line);
+    row.querySelector(".area").setAttribute("d", seen.length ? `${line}L${x(seen.at(-1)[0]).toFixed(1)},${H}L${x(seen[0][0]).toFixed(1)},${H}Z` : "");
+    // под курсором — ближайшая точка и сколько минут назад; без курсора — последняя
+    const t = hover[m.i], p = t == null ? seen.at(-1) : seen.reduce((a, b) => Math.abs(b[0] - t) < Math.abs(a[0] - t) ? b : a, seen[0]);
+    const hair = row.querySelector(".hair");
+    hair.setAttribute("visibility", t == null ? "hidden" : "visible");
+    if (p) { hair.setAttribute("x1", x(p[0])); hair.setAttribute("x2", x(p[0])); }
+    const ago = p && t != null ? Math.round((end - p[0]) / 60) : 0;
+    row.querySelector(".val").textContent = p ? m.fmt(p[m.i], s) + (t == null ? "" : ago ? ` · ${ago} мин назад` : " · сейчас") : "—";
+  }
+}
+const end0 = () => st.stats.points.at(-1)[0], span0 = () => (st.stats.every || 2) * 300;
+
+// ---------- шаг 1 ----------
+$("#vm-btn").onclick = async () => {
+  if (st.vm === "on" && !confirm("Погасить VM? Модель и скачанные файлы пропадут.")) return;
+  try { await api(st.vm === "on" ? "/api/vm/stop" : "/api/vm/start", {}); } catch (err) { toast(err.message); }
+};
+$("#keep").onchange = async e => {
+  try { await api("/api/keep", {on: e.target.checked}); st.keep = e.target.checked; render(); }
+  catch (err) { e.target.checked = st.keep; toast(err.message); }
+};
+
+// ---------- шаг 2 ----------
+let lookTimer = null;
+$("#link").oninput = () => { clearTimeout(lookTimer); lookTimer = setTimeout(lookup, 700); };
+$("#link").onkeydown = e => { if (e.key === "Enter") { clearTimeout(lookTimer); lookup(); } };
+$("#link").onpaste = () => { clearTimeout(lookTimer); setTimeout(lookup, 0); };
+document.querySelectorAll("input[name=engine]").forEach(r => r.onchange = () => { store.set("engine", engine()); lookup(); });
+$("#alt").onchange = e => { $("#link").value = "https://huggingface.co/" + e.target.value; lookup(); };
+
+async function lookup() {
+  clearTimeout(lookTimer);
+  const q = $("#link").value.trim(), asked = engine();
+  store.set("link", q);
+  if (!q) { $("#found").hidden = true; $("#look-status").hidden = true; pick = null; if (st) render(); return; }
+  const seq = ++lookSeq, s = $("#look-status");
+  s.hidden = false; s.className = "hint"; s.textContent = "Ищу на Hugging Face…";
+  try {
+    const r = await api(`/api/lookup?q=${encodeURIComponent(q)}&engine=${engine()}`);
+    if (seq !== lookSeq) return;
+    s.hidden = true;
+    found = r;
+    if (r.engine !== asked) r.note = (r.engine === "llama" ? "Это GGUF — движок llama.cpp. " : "Это EXL3 — движок ExLlamaV3. ") + r.note;
+    setEngine(r.engine);
+    showFound();
+  } catch (err) {
+    if (seq !== lookSeq) return;
+    s.className = "msg-bad"; s.textContent = err.message;
+    $("#found").hidden = true; pick = null;
+  }
+  if (st) render();
+}
+
+function showFound() {
+  $("#found").hidden = false;
+  const a = $("#repo-link");
+  a.textContent = found.repo; a.href = "https://huggingface.co/" + found.repo;
+  $("#look-note").hidden = !found.note;
+  $("#look-note").textContent = found.note;
+  $("#alt-box").hidden = found.alternatives.length < 2;
+  const alt = $("#alt");
+  alt.innerHTML = "";
+  for (const r of found.alternatives) alt.add(new Option(r, r, false, r === found.repo));
+  const box = $("#variants");
+  box.innerHTML = "";
+  for (const v of found.variants) {
+    const id = "v-" + v.variant.replace(/[^\w.-]/g, "_");
+    const label = document.createElement("label");
+    const input = Object.assign(document.createElement("input"), {type: "radio", name: "variant", id, value: v.variant, checked: v.variant === found.default});
+    input.onchange = () => choose(v);
+    const file = v.variant.split("/").pop().replace(/-00001-of-(\d{5})(\.gguf)$/, (_, n, ext) => `${ext} · частей: ${+n}`);
+    const name = Object.assign(document.createElement("span"), {className: "vn", textContent: `${file} · ${gb(v.size)}`});
+    const fit = document.createElement("span");
+    fit.className = "fit";
+    fit.innerHTML = `<span class="dot ${FIT[v.mark][0]}"></span>`;
+    fit.append(FIT[v.mark][1]);
+    label.append(input, name, fit);
+    box.append(label);
+    if (input.checked) { choose(v); requestAnimationFrame(() => label.scrollIntoView({block: "nearest"})); }
+  }
+}
+
+function choose(v) {
+  const name = found.engine === "llama" ? v.variant.split("/").pop().replace(/(-\d{5}-of-\d{5})?\.gguf$/, "") : `${found.repo.split("/")[1]} · ${v.variant}`;
+  pick = {engine: found.engine, repo: found.repo, variant: v.variant, size: v.size, mark: v.mark, name};
+  if (st) render();
+}
+
+// ---------- шаг 3 ----------
+$("#load-btn").onclick = async () => {
+  try { await api("/api/load", pick); } catch (err) { toast(err.message); }
+};
+
+// ---------- шаг 4 ----------
+$("#copy").onclick = async () => {
+  await navigator.clipboard.writeText($("#api").value).catch(() => { $("#api").select(); document.execCommand("copy"); });
+  const b = $("#copy"), old = b.innerHTML;
+  b.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+  b.setAttribute("aria-label", "Скопировано");
+  setTimeout(() => { b.innerHTML = old; b.setAttribute("aria-label", "Копировать адрес"); }, 1500);
+};
+
+// ---------- настройки ----------
+const settings = {...DEFAULTS, ...store.get("settings", {})};
+if (store.get("settings.v", 1) < 2) {  // раньше по умолчанию было 2048, и рассуждения обрывались — сбрасываем один раз
+  settings.max_tokens = null;
+  store.set("settings", settings); store.set("settings.v", 2);
+}
+for (const k of Object.keys(DEFAULTS)) {
+  const el = $("#o-" + k);
+  if (el.type === "checkbox") el.checked = settings[k]; else el.value = settings[k] ?? "";
+  el.onchange = () => {
+    settings[k] = el.type === "checkbox" ? el.checked : el.type !== "number" ? el.value : el.value === "" ? DEFAULTS[k] : Number(el.value);
+    store.set("settings", settings);
+  };
+}
+$("#set-btn").onclick = () => {
+  const p = $("#settings"); p.hidden = !p.hidden; $("#set-btn").setAttribute("aria-expanded", String(!p.hidden));
+};
+
+// ---------- чат ----------
+function splitThink(raw, m) {
+  // рассуждения приходят в <think>…</think>; у части моделей открывающий тег стоит в промпте, и виден только закрывающий
+  const open = raw.indexOf("<think>"), close = raw.indexOf("</think>");
+  if (close >= 0 && (open < 0 || open > close)) { m.think = raw.slice(0, close).trim(); m.content = raw.slice(close + 8).trim(); }
+  else if (open >= 0) { m.think = raw.slice(open + 7, close < 0 ? undefined : close).trim(); m.content = (raw.slice(0, open) + (close < 0 ? "" : raw.slice(close + 8))).trim(); }
+  else { m.think = ""; m.content = raw.trim(); }
+}
+
+function drawChat() {
+  const log = $("#log");
+  log.innerHTML = "";
+  if (!chat.length) {
+    const e = document.createElement("p");
+    e.className = "empty";
+    e.textContent = st?.running ? `Пиши — отвечает ${st.running.name}.` : "Включи VM, выбери и загрузи модель слева — и пиши сюда.";
+    log.append(e);
+    return;
+  }
+  for (const m of chat) log.append(bubble(m));
+  log.scrollTop = log.scrollHeight;
+}
+
+function bubble(m) {
+  const d = document.createElement("div");
+  d.className = `m ${m.role}` + (m.pending ? " pending" : "");
+  if (m.think) d.append(Object.assign(document.createElement("div"), {className: "think", textContent: m.think}));
+  d.append(Object.assign(document.createElement("div"), {className: "body", textContent: m.content}));
+  if (m.cut) d.append(Object.assign(document.createElement("div"), {className: "meta cut", textContent: m.cut}));
+  if (m.meta) d.append(Object.assign(document.createElement("div"), {className: "meta", textContent: m.meta}));
+  return d;
+}
+
+async function send() {
+  const text = $("#msg").value.trim();
+  if (!text || sending || !st?.running) return;
+  sending = true;
+  $("#msg").value = ""; grow();
+  const history = chat.map(m => ({role: m.role, content: m.content}));
+  chat.push({role: "user", content: text});
+  const a = {role: "assistant", content: "", think: "", meta: "", pending: true};
+  chat.push(a);
+  drawChat(); render();
+  const messages = [...(settings.system.trim() ? [{role: "system", content: settings.system}] : []), ...history, {role: "user", content: text}];
+  const params = {temperature: settings.temperature, top_p: settings.top_p, top_k: settings.top_k, max_tokens: settings.max_tokens};
+  let raw = "";
+  try {
+    const r = await fetch("/api/chat", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({messages, params, think: settings.think})});
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith("data: ")) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.error) throw new Error(ev.error);
+        if (ev.t !== undefined) { raw += ev.t; splitThink(raw, a); }
+        if (ev.done) { a.meta = `${ev.model ?? ""}${ev.tps ? ` · ${nf.format(ev.tps)} ток/с` : ""}`; if (CUT[ev.finish]) a.cut = CUT[ev.finish]; }
+        const log = $("#log"), atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+        log.lastChild.replaceWith(bubble(a));
+        if (atBottom) log.scrollTop = log.scrollHeight;
+      }
+    }
+  } catch (err) {
+    a.content = (a.content ? a.content + "\n\n" : "") + "Ошибка: " + err.message;
+  }
+  delete a.pending;
+  store.set("chat", chat);
+  sending = false;
+  drawChat();
+  if (st) render();
+  $("#msg").focus();
+}
+
+function grow() { const t = $("#msg"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 180) + "px"; }
+$("#msg").oninput = grow;
+$("#msg").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
+$("#send").onclick = send;
+$("#new-chat").onclick = () => { chat = []; store.set("chat", chat); drawChat(); };
+
+// ---------- старт ----------
+setEngine(store.get("engine", "llama"));
+$("#link").value = store.get("link", "");
+drawChat();
+poll();
+if ($("#link").value) lookup();
+</script>
+</body>
+</html>

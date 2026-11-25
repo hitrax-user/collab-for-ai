@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+# Меню в WSL: выбрать аккаунт Colab и открыть страницу управления или добавить аккаунт. Запуск: ./menu
+import getpass
+import re
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import server  # noqa: E402
+from colab_run import ANSI, HERE  # noqa: E402
+
+
+def colab(acc, *args):
+    # stdin закрыт: если токен аккаунта протух, CLI не повиснет молча в ожидании кода входа
+    p = subprocess.run([str(HERE / "colab-as"), acc, *args], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=90)
+    return ANSI.sub("", p.stdout + p.stderr)
+
+
+def email(acc):
+    """Email аккаунта: спрашиваем Google один раз и запоминаем рядом с его токеном."""
+    f = server.ACCOUNTS / acc / "email"
+    if not f.exists():
+        m = server.EMAIL.search(colab(acc, "whoami"))
+        if not m:
+            return "вход не выполнен"
+        f.write_text(m[1])
+    return f.read_text().strip()
+
+
+def vm(acc):
+    out = colab(acc, "sessions")
+    if "No active sessions" in out:
+        return "VM нет"
+    hw = re.findall(r"Hardware:\s*(\S+)", out)
+    return f"{', '.join(hw)} работает" if hw else "VM: не понял ответ colab"
+
+
+def add():
+    tmp = f"adding-{int(time.time())}"  # имя узнаем из email после входа
+    print("\ncolab напечатает ссылку для входа. Открой её в браузере, выбери нужный Google-аккаунт и вставь код сюда.\n"
+          "Если браузер сам подставляет не тот аккаунт, открой ссылку в режиме инкогнито.\n")
+    entered = subprocess.run([str(HERE / "colab-as"), tmp, "sessions"]).returncode == 0
+    m = entered and server.EMAIL.search(colab(tmp, "whoami"))
+    try:
+        print(f"Добавлен: {server.adopt(tmp, m and m[1])} · {m[1]}")
+    except ValueError as e:
+        print(e)
+
+
+def ask_token():
+    """HF-токен один на все аккаунты; без него работают все модели, кроме закрытых."""
+    if server.HF_TOKEN.exists():
+        return
+    t = getpass.getpass("HF-токен для закрытых моделей (ввод скрыт; Enter — пропустить): ").strip()
+    if t:
+        server.HF_TOKEN.parent.mkdir(parents=True, exist_ok=True)
+        server.HF_TOKEN.write_text(t)
+        server.HF_TOKEN.chmod(0o600)
+
+
+def main():
+    ask_token()
+    while True:
+        accs = [a["name"] for a in server.accounts()]
+        print("\nПроверяю аккаунты…")
+        with ThreadPoolExecutor(8) as ex:
+            info = list(ex.map(lambda a: (email(a), vm(a)), accs))
+        print("\nColab LLM")
+        for i, (acc, (mail, state)) in enumerate(zip(accs, info), 1):
+            print(f"  {i}) {acc} · {mail} · {state}")
+        if not accs:
+            print("  Аккаунтов пока нет — добавь первый")
+        print("  +) Добавить аккаунт\n  q) Выход")
+        try:
+            choice = input("> ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if choice in ("q", "й"):
+            return
+        if choice == "+":
+            add()
+        elif choice.isdigit() and 1 <= int(choice) <= len(accs):
+            server.serve(accs[int(choice) - 1])
+
+
+if __name__ == "__main__":
+    main()

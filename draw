@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Картинки обычным текстом через comfy_start.py: ./draw [модель] [аккаунт] [сессия]
+# Модели: sd15, sdxl, zimage; /sd15, /sdxl, /zimage — переключить. Картинки — в out/. Ctrl-D — выход.
+set -euo pipefail
+model=${1:-sdxl}
+acc=${2:-main}
+session=${3:-comfy}
+cd "$(dirname "$0")"
+mkdir -p out
+while IFS= read -rep "[$model]> " q; do
+  case $q in
+    "") continue ;;
+    /sd15 | /sdxl | /zimage) model=${q#/}; continue ;;
+  esac
+  prompt=$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1], ensure_ascii=False))' "$q")
+  printf 'gen(%s, "%s")\n' "$prompt" "$model" |
+    ./colab-as "$acc" exec -s "$session" --timeout 1800 --output-image "out/$(date +%Y%m%d-%H%M%S)-$model.png" || true
+done

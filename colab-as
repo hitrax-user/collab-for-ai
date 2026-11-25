@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# colab от имени конкретного Google-аккаунта: ./colab-as <аккаунт> <команда colab> [аргументы...]
+# У каждого аккаунта свой HOME (~/.colab-accounts/<аккаунт>): там его токен, сессии и история.
+# ponytail: colab ssh в этом режиме не найдёт ключи из ~/.ssh — если понадобится, передавай -i явно.
+set -euo pipefail
+[[ $# -ge 2 && $1 =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo "usage: $0 <account> <colab args...>" >&2; exit 2; }
+colab=$(command -v colab || echo "$HOME/.local/bin/colab")
+home="$HOME/.colab-accounts/$1"
+shift
+mkdir -p "$home"
+HOME="$home" exec "$colab" --auth=oauth2 "$@"
